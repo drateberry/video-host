@@ -9,7 +9,7 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
-    "pm2:start": "npm run build && pm2 start ecosystem.config.cjs",
+    "pm2:start": "npm run build && pm2 start ecosystem.config.js",
     "pm2:stop": "pm2 stop video-host",
     "pm2:restart": "npm run build && pm2 restart video-host",
     "pm2:logs": "pm2 logs video-host"
