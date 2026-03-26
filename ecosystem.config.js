@@ -2,12 +2,14 @@ module.exports = {
   apps: [
     {
       name: "video-host",
-      script: "node_modules/.bin/next",
-      args: "start -p 3001",
+      script: "npm",
+      args: "start -- -p 3001",
       cwd: __dirname,
+      interpreter: "none",
       env: {
         NODE_ENV: "production",
       },
+      exec_mode: "fork",
       instances: 1,
       autorestart: true,
       max_memory_restart: "512M",
