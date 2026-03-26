@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Video {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  s3Key        String
+  videoUrl     String
+  thumbnailUrl String?
+
+  prospectName    String
+  prospectCompany String
+  prospectEmail   String
+
+  ctaLabel String  @default("Book a Call")
+  ctaUrl   String?
+
+  notes          String?
+  sitePreviewUrl String?
+
+  viewCount Int    @default(0)
+  status    String @default("ready")
+
+  // Transcoding
+  mediaConvertJobId String? // AWS MediaConvert job ID
+  mp4S3Key          String? // S3 key for transcoded .mp4
+  transcodeStatus   String  @default("pending") // pending | processing | complete | error
+
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  viewEvents ViewEvent[]
+}
+
+model ViewEvent {
+  id        String   @id @default(cuid())
+  videoId   String
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  viewedAt  DateTime @default(now())
+  userAgent String?
+  ipHash    String?
+  duration  Int?
+
+  @@index([videoId])
+}
