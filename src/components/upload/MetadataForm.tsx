@@ -9,6 +9,8 @@ interface MetadataFormProps {
 }
 
 export function MetadataForm({ onSubmit, loading }: MetadataFormProps) {
+  const defaultCtaLabel = process.env.NEXT_PUBLIC_DEFAULT_CTA_LABEL || "";
+  const defaultCtaUrl = process.env.NEXT_PUBLIC_DEFAULT_CTA_URL || "";
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -89,6 +91,7 @@ export function MetadataForm({ onSubmit, loading }: MetadataFormProps) {
               id="ctaLabel"
               name="ctaLabel"
               type="text"
+              defaultValue={defaultCtaLabel}
               placeholder="Book a Call"
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -102,6 +105,7 @@ export function MetadataForm({ onSubmit, loading }: MetadataFormProps) {
               id="ctaUrl"
               name="ctaUrl"
               type="url"
+              defaultValue={defaultCtaUrl}
               placeholder="https://calendly.com/your-link"
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
