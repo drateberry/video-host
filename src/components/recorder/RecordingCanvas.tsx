@@ -107,82 +107,93 @@ export const RecordingCanvas = forwardRef<HTMLCanvasElement, RecordingCanvasProp
       let processing = false;
       let active = true;
       let lastTimestamp = -1;
+      let processingStartTime = 0;
 
       function processFrame() {
-        if (!active || !webcamVideoRef.current || !segmenterRef.current || !webcamCanvasRef.current || processing) {
-          if (active) {
-            requestAnimationFrame(processFrame);
+        if (!active) return;
+
+        // Safety: if processing has been stuck for >2 seconds, force reset
+        if (processing) {
+          if (performance.now() - processingStartTime > 2000) {
+            console.warn("Segmentation processing stuck, resetting");
+            processing = false;
+          } else {
+            // Wait and retry, but use setTimeout instead of tight RAF loop
+            setTimeout(() => requestAnimationFrame(processFrame), 33);
+            return;
           }
-          return;
         }
+
+        if (!webcamVideoRef.current || !segmenterRef.current || !webcamCanvasRef.current) return;
 
         if (webcamVideoRef.current.readyState >= 2) {
           processing = true;
+          processingStartTime = performance.now();
+
+          const video = webcamVideoRef.current;
+          const canvas = webcamCanvasRef.current;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            processing = false;
+            scheduleNext();
+            return;
+          }
+
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+
+          // Ensure unique timestamp for segmentForVideo
+          let timestamp = performance.now();
+          if (timestamp <= lastTimestamp) {
+            timestamp = lastTimestamp + 1;
+          }
+          lastTimestamp = timestamp;
 
           try {
-            const video = webcamVideoRef.current;
-            const canvas = webcamCanvasRef.current;
-            const ctx = canvas.getContext("2d");
-            if (!ctx) {
-              processing = false;
-              return;
-            }
-
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-
-            // Ensure unique timestamp for segmentForVideo
-            let timestamp = performance.now();
-            if (timestamp <= lastTimestamp) {
-              timestamp = lastTimestamp + 1;
-            }
-            lastTimestamp = timestamp;
-
-            // Run segmentation synchronously (callback-based API)
             segmenterRef.current.segmentForVideo(video, timestamp, (result: {
               categoryMask?: { getAsUint8Array: () => Uint8Array; close: () => void };
             }) => {
-              if (!result || !result.categoryMask || !ctx || !canvas) {
-                processing = false;
-                return;
-              }
+              try {
+                if (!result || !result.categoryMask || !ctx || !canvas) return;
 
-              const maskData = result.categoryMask.getAsUint8Array();
+                const maskData = result.categoryMask.getAsUint8Array();
 
-              // Draw sharp original
-              ctx.filter = "none";
-              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-              const sharpData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                // Draw sharp original
+                ctx.filter = "none";
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const sharpData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-              // Draw heavily blurred version
-              ctx.filter = "blur(40px)";
-              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-              ctx.filter = "none";
-              const blurredData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                // Draw heavily blurred version
+                ctx.filter = "blur(40px)";
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                ctx.filter = "none";
+                const blurredData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-              // Composite: person pixels use sharp, background uses blurred
-              const finalData = ctx.createImageData(canvas.width, canvas.height);
-              for (let i = 0; i < maskData.length; i++) {
-                const pi = i * 4;
-                // selfie_segmenter: 0 = person (foreground), 1+ = background
-                if (maskData[i] === 0) {
-                  // Person - sharp and clear
-                  finalData.data[pi] = sharpData.data[pi];
-                  finalData.data[pi + 1] = sharpData.data[pi + 1];
-                  finalData.data[pi + 2] = sharpData.data[pi + 2];
-                  finalData.data[pi + 3] = 255;
-                } else {
-                  // Background - heavily blurred
-                  finalData.data[pi] = blurredData.data[pi];
-                  finalData.data[pi + 1] = blurredData.data[pi + 1];
-                  finalData.data[pi + 2] = blurredData.data[pi + 2];
-                  finalData.data[pi + 3] = 255;
+                // Composite: person pixels use sharp, background uses blurred
+                const finalData = ctx.createImageData(canvas.width, canvas.height);
+                for (let i = 0; i < maskData.length; i++) {
+                  const pi = i * 4;
+                  // selfie_segmenter: 0 = person (foreground), 1+ = background
+                  if (maskData[i] === 0) {
+                    finalData.data[pi] = sharpData.data[pi];
+                    finalData.data[pi + 1] = sharpData.data[pi + 1];
+                    finalData.data[pi + 2] = sharpData.data[pi + 2];
+                    finalData.data[pi + 3] = 255;
+                  } else {
+                    finalData.data[pi] = blurredData.data[pi];
+                    finalData.data[pi + 1] = blurredData.data[pi + 1];
+                    finalData.data[pi + 2] = blurredData.data[pi + 2];
+                    finalData.data[pi + 3] = 255;
+                  }
                 }
-              }
 
-              ctx.putImageData(finalData, 0, 0);
-              result.categoryMask.close();
-              processing = false;
+                ctx.putImageData(finalData, 0, 0);
+                result.categoryMask.close();
+              } catch (err) {
+                console.error("Segmentation callback error:", err);
+              } finally {
+                processing = false;
+              }
             });
           } catch (err) {
             console.error("Segmentation error:", err);
@@ -190,7 +201,10 @@ export const RecordingCanvas = forwardRef<HTMLCanvasElement, RecordingCanvasProp
           }
         }
 
-        // Process at ~15fps to reduce CPU usage
+        scheduleNext();
+      }
+
+      function scheduleNext() {
         if (active) {
           setTimeout(() => requestAnimationFrame(processFrame), 66);
         }
@@ -228,8 +242,11 @@ export const RecordingCanvas = forwardRef<HTMLCanvasElement, RecordingCanvasProp
           ctx.drawImage(screenVideoRef.current, 0, 0, canvas.width, canvas.height);
         }
 
-        // Draw webcam with background blur as circular PiP in bottom-right
-        if (webcamStream && webcamCanvasRef.current && webcamCanvasRef.current.width > 0) {
+        // Draw webcam as circular PiP in bottom-right
+        const hasProcessedWebcam = webcamCanvasRef.current && webcamCanvasRef.current.width > 0;
+        const hasRawWebcam = webcamVideoRef.current && webcamVideoRef.current.readyState >= 2;
+
+        if (webcamStream && (hasProcessedWebcam || hasRawWebcam)) {
           const x = canvas.width - webcamSize - webcamPadding;
           const y = canvas.height - webcamSize - webcamPadding;
           const centerX = x + webcamSize / 2;
@@ -244,9 +261,10 @@ export const RecordingCanvas = forwardRef<HTMLCanvasElement, RecordingCanvasProp
           ctx.closePath();
           ctx.clip();
 
-          // Draw the processed webcam (with background blur)
-          const videoWidth = webcamCanvasRef.current.width;
-          const videoHeight = webcamCanvasRef.current.height;
+          // Use processed canvas if available, otherwise raw webcam video
+          const source = hasProcessedWebcam ? webcamCanvasRef.current! : webcamVideoRef.current!;
+          const videoWidth = hasProcessedWebcam ? webcamCanvasRef.current!.width : webcamVideoRef.current!.videoWidth;
+          const videoHeight = hasProcessedWebcam ? webcamCanvasRef.current!.height : webcamVideoRef.current!.videoHeight;
           const scale = Math.max(webcamSize / videoWidth, webcamSize / videoHeight);
           const drawWidth = videoWidth * scale;
           const drawHeight = videoHeight * scale;
@@ -258,7 +276,7 @@ export const RecordingCanvas = forwardRef<HTMLCanvasElement, RecordingCanvasProp
           ctx.scale(-1, 1);
           ctx.translate(-centerX, 0);
 
-          ctx.drawImage(webcamCanvasRef.current, offsetX, offsetY, drawWidth, drawHeight);
+          ctx.drawImage(source, offsetX, offsetY, drawWidth, drawHeight);
           ctx.restore();
 
           // Draw border ring around webcam
